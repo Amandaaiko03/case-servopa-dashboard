@@ -39,25 +39,20 @@ def carregar_dados():
     # SANEAMENTO DE DADOS 
     colunas_fin = ['Margem_liquida_pre_bonus', 'Margem_liquida_pos_bonus']
     for col in colunas_fin:
-        # Converte para número e remove erros de preenchimento 
         vendas[col] = pd.to_numeric(vendas[col], errors='coerce')
-
         vendas.loc[vendas[col] > 1000000, col] = 0
         vendas[col] = vendas[col].fillna(0)
     
     bonus['Data_envio'] = pd.to_datetime(bonus['Data_envio'])
     vendas['Data_venda'] = pd.to_datetime(vendas['Data_venda'])
     
-    # Unir bônus com campanhas para saber o valor previsto
     df_bonus_full = pd.merge(bonus, campanhas[['Campanha', 'Valor_bonus', 'Marca']], on='Campanha', how='left')
     df_bonus_full['Valor_bonus'] = pd.to_numeric(df_bonus_full['Valor_bonus'], errors='coerce').fillna(0)
     
-    # Calcular Valor em Risco
     df_bonus_full['Valor_em_Risco'] = df_bonus_full.apply(
         lambda x: x['Valor_bonus'] if x['Status'] in ['Pendente', 'Enviado', 'Recusado'] else 0, axis=1
     )
     
-    # Unir Vendas com Filiais 
     vendas = pd.merge(vendas, filiais[['Filial_ID', 'Filial']], on='Filial_ID', how='left', suffixes=('', '_dim'))
     
     return vendas, df_bonus_full, pos_venda, filiais
@@ -115,47 +110,65 @@ st.markdown("---")
 azul_servopa = "#002b5c"
 cinza_servopa = "#8e9091"
 
+# --- LINHA 1 DE GRÁFICOS ---
 c1, c2 = st.columns(2)
 
 with c1:
     st.subheader("💰 Performance de Margem por Marca")
-    
-    # Agrupamos por Marca usando a base de vendas limpa 
     margem_data = df_vendas_f.groupby('Marca')[['Margem_liquida_pre_bonus', 'Margem_liquida_pos_bonus']].sum().reset_index()
-    
-    # Gráfico
-    fig_margem = px.bar(margem_data, 
-                        x='Marca', 
-                        y=['Margem_liquida_pre_bonus', 'Margem_liquida_pos_bonus'],
-                        labels={'value': 'Valor Total (R$)', 'variable': 'Tipo de Margem'},
-                        barmode='group', 
+    fig_margem = px.bar(margem_data, x='Marca', y=['Margem_liquida_pre_bonus', 'Margem_liquida_pos_bonus'],
+                        labels={'value': 'R$', 'variable': 'Tipo'}, barmode='group',
                         color_discrete_sequence=[cinza_servopa, azul_servopa])
-    
-    # Formatando o Eixo Y e legenda
-    fig_margem.update_layout(
-        yaxis=dict(tickformat=",.2f"), 
-        plot_bgcolor='rgba(0,0,0,0)',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    
+    fig_margem.update_layout(yaxis=dict(tickformat=",.2f"), plot_bgcolor='rgba(0,0,0,0)',
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig_margem, use_container_width=True)
 
 with c2:
+    st.subheader("🎯 Composição de Satisfação (NPS)")
+    if not df_pos_f.empty:
+        # Categorização para o gráfico de Rosca
+        def cat_nps(x):
+            if x >= 9: return 'Promotor'
+            elif x >= 7: return 'Neutro'
+            else: return 'Detrator'
+        
+        df_pos_f['Categoria'] = df_pos_f['NPS'].apply(cat_nps)
+        nps_dist = df_pos_f['Categoria'].value_counts().reset_index()
+        nps_dist.columns = ['Categoria', 'Qtd']
+        
+        fig_nps = px.pie(nps_dist, values='Qtd', names='Categoria', hole=0.6,
+                         color='Categoria', color_discrete_map={'Promotor': '#2e7d32', 'Neutro': '#f9a825', 'Detrator': '#d32f2f'})
+        fig_nps.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5))
+        st.plotly_chart(fig_nps, use_container_width=True)
+    else:
+        st.write("Sem dados de NPS para os filtros selecionados.")
+
+st.markdown("---")
+
+# --- LINHA 2 DE GRÁFICOS ---
+c3, c4 = st.columns(2)
+
+with c3:
     st.subheader("⚠️ Gargalos: Atrasos de Envio")
     atrasos = df_bonus_f.groupby('Filial_ID')['Flag_envio_fora_prazo'].sum().reset_index()
     fig_atraso = px.bar(atrasos, x='Filial_ID', y='Flag_envio_fora_prazo', color_discrete_sequence=['#d32f2f'])
     fig_atraso.update_layout(plot_bgcolor='rgba(0,0,0,0)')
     st.plotly_chart(fig_atraso, use_container_width=True)
 
+with c4:
+    st.subheader("📅 Tendência de Vendas (Volume)")
+    vendas_dia = df_vendas_f.groupby(df_vendas_f['Data_venda'].dt.date).size().reset_index(name='Qtd')
+    fig_vol = px.line(vendas_dia, x='Data_venda', y='Qtd', color_discrete_sequence=[azul_servopa])
+    fig_vol.update_layout(plot_bgcolor='rgba(0,0,0,0)')
+    st.plotly_chart(fig_vol, use_container_width=True)
+
 st.markdown("---")
 
 # Tabela de Prioridades
 st.subheader("🚨 Plano de Ação: Top 10 Prioridades (Controladoria)")
-
 df_prioridade = df_bonus_f[df_bonus_f['Status'].isin(['Pendente', 'Enviado'])].sort_values(by='Valor_em_Risco', ascending=False)
 top_10 = df_prioridade[['Chassi', 'Campanha', 'Tipo_bonus', 'Status', 'Valor_em_Risco', 'Flag_envio_fora_prazo']].head(10)
 
-# Estilo para destacar atrasos na tabela
 def highlight_atraso(row):
     return ['background-color: #ffebee' if row['Flag_envio_fora_prazo'] == 1 else '' for _ in row]
 
