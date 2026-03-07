@@ -6,7 +6,7 @@ Este repositório contém a solução desenvolvida para o case técnico da **Con
 ---
 
 ## 🔗 Acesso ao Projeto
-🚀 **Dashboard Interativo:** [CLIQUE AQUI PARA ACESSAR O APP](https://amanda-case-servopa.streamlit.app)
+🚀 **Dashboard Interativo:** [CLIQUE AQUI PARA ACESSAR O APP](https://case-servopa-dashboard-rcqvgfqcx7ka3wkb9ymba6.streamlit.app/)
 
 ---
 
